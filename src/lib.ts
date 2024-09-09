@@ -17,7 +17,7 @@ import { EditorState } from "prosemirror-state";
 import { type Attrs, Mark, Node, Schema } from "prosemirror-model";
 
 type LoroChildrenListType = LoroList<LoroMap<LoroNodeContainerType> | LoroText>;
-type LoroNodeContainerType = {
+export type LoroNodeContainerType = {
   [CHILDREN_KEY]: LoroChildrenListType,
   [ATTRIBUTES_KEY]: LoroMap,
   [NODE_NAME_KEY]: string
@@ -66,9 +66,10 @@ export function updateLoroToPmState(
   doc: LoroDocType,
   mapping: LoroNodeMapping,
   editorState: EditorState,
+  fragment?: LoroMap<LoroNodeContainerType>,
 ) {
   const node = editorState.doc;
-  const map = doc.getMap(ROOT_DOC_KEY);
+  const map = fragment ?? doc.getMap(ROOT_DOC_KEY);
 
   let isInit = false;
   if (map.get("nodeName") == null) {
@@ -654,15 +655,17 @@ export function clearChangedNodes(
   doc: LoroDocType,
   event: LoroEventBatch,
   mapping: LoroNodeMapping,
+  fragment?: LoroMap,
 ) {
   for (const e of event.events) {
     const obj = doc.getContainerById(e.target);
     mapping.delete(obj.id);
 
     let parentObj = obj.parent();
-    while (parentObj != null) {
-      mapping.delete(parentObj.id);
-      parentObj = parentObj.parent();
+    
+    while (typeof fragment === "undefined" ? parentObj != null : (parentObj?.id !== fragment.id && parentObj != null)) {
+      mapping.delete(parentObj!.id);
+      parentObj = parentObj!.parent();
     }
   }
 }
