@@ -15,7 +15,7 @@ import {
   redo,
 } from "loro-prosemirror";
 import "./Editor.css";
-import { Loro } from "loro-crdt";
+import { Loro, LoroMap } from "loro-crdt";
 import { buildMenuItems } from "./menu";
 
 const mySchema = new Schema({
@@ -32,10 +32,12 @@ export function Editor({
   loro,
   awareness,
   onCreateLoro,
+  fragment,
 }: {
   loro?: Loro;
   awareness?: CursorAwareness;
   onCreateLoro?: (loro: Loro) => void;
+  fragment?: LoroMap
 }) {
   const editorRef = useRef<null | EditorView>(null);
   const editorDom = useRef(null);
@@ -55,7 +57,8 @@ export function Editor({
 
     const all = [
       ...plugins,
-      LoroSyncPlugin({ doc: loroRef.current! }),
+      // @ts-expect-error
+      LoroSyncPlugin({ doc: loroRef.current!, fragment }),
       LoroUndoPlugin({ doc: loroRef.current! }),
       keymap({
         "Mod-z": state => undo(state, () => {}),

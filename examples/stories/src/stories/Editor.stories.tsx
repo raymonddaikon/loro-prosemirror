@@ -1,8 +1,8 @@
 import type { Meta } from "@storybook/react";
 
 import { Editor } from "./Editor";
-import { Loro } from "loro-crdt";
-import { useEffect, useRef } from "react";
+import { Loro, LoroMap, VersionVector } from "loro-crdt";
+import { useEffect, useRef, useState } from "react";
 import { CursorAwareness } from "loro-prosemirror";
 
 const meta = {
@@ -27,26 +27,114 @@ export const Basic = () => {
   );
 };
 
+type UpdateType = 'ephemeral' | 'awareness' | 'crdt'
+type UpdateMessage = {
+  type: 'update'
+  updateType: UpdateType
+  payload: Uint8Array
+}
+
+function parseMessage(data: Uint8Array): UpdateMessage {
+  const messageType = data[0]
+  switch (messageType) {
+    case 1: {
+      // Update
+      const updateType = (() => {
+        switch (data[1]) {
+          case 0:
+            return 'ephemeral'
+          case 1:
+            return 'awareness'
+          case 2:
+            return 'crdt'
+          default:
+            throw new Error(`Unknown update type: ${data[1]}`)
+        }
+      })()
+      return {
+        type: 'update',
+        updateType,
+        payload: data.slice(2),
+      }
+    }
+    default:
+      throw new Error(`Unknown message type: ${messageType}`)
+  }
+}
+
+export function encodeUpdateMessage(
+  updateType: UpdateType,
+  payload: Uint8Array,
+): Uint8Array {
+  const message = new Uint8Array(2 + payload.length)
+  message[0] = 1
+  message[1] =
+    updateType === 'ephemeral' ? 0 : updateType === 'awareness' ? 1 : 2
+  message.set(payload, 2)
+  return message
+}
+
 export const Sync = () => {
+  const bcA = useRef<BroadcastChannel>(new BroadcastChannel(`A`))
+  const bcB = useRef<BroadcastChannel>(new BroadcastChannel(`B`)) 
   const loroARef = useRef<Loro>(new Loro());
   const idA = loroARef.current.peerIdStr;
   const awarenessA = useRef<CursorAwareness>(new CursorAwareness(idA));
   const loroBRef = useRef<Loro>(new Loro());
   const idB = loroBRef.current.peerIdStr;
   const awarenessB = useRef<CursorAwareness>(new CursorAwareness(idB));
+  const [lastStateA, setLastStateA] = useState<VersionVector | undefined>();
+  const [lastStateB, setLastStateB] = useState<VersionVector | undefined>();
+  const docAFragment = loroARef.current.getMap('data').setContainer('fragment', new LoroMap())
   useEffect(() => {
+    bcA.current.onmessage = (event) => {
+      const parsedMessage = parseMessage(event.data)
+      if (parsedMessage.type === 'update') {
+        // Handle different update types
+        switch (parsedMessage.updateType) {
+          case 'ephemeral':
+            break
+          case 'awareness':
+            break
+          case 'crdt':
+            loroARef.current.import(parsedMessage.payload)
+            loroARef.current.commit('sys:bc-update')
+            break
+        }
+      }
+    }
+    bcB.current.onmessage = (event) => {
+      const parsedMessage = parseMessage(event.data)
+      if (parsedMessage.type === 'update') {
+        // Handle different update types
+        switch (parsedMessage.updateType) {
+          case 'ephemeral':
+            break
+          case 'awareness':
+            break
+          case 'crdt':
+            loroARef.current.import(parsedMessage.payload)
+            loroARef.current.commit('sys:bc-update')
+            break
+        }
+      }
+    }
     loroARef.current.subscribe((event) => {
       if (event.by === "local") {
+        bcA.current.postMessage(encodeUpdateMessage('crdt', loroARef.current.exportFrom(lastStateA)))
         loroBRef.current.import(
           loroARef.current.exportFrom(loroBRef.current.oplogVersion()),
         );
+        setLastStateA(loroARef.current.oplogVersion())
       }
     });
     loroBRef.current.subscribe((event) => {
       if (event.by === "local") {
+        bcB.current.postMessage(encodeUpdateMessage('crdt', loroBRef.current.exportFrom(lastStateB)))
         loroARef.current.import(
           loroBRef.current.exportFrom(loroARef.current.oplogVersion()),
         );
+        setLastStateB(loroBRef.current.oplogVersion())
       }
     });
     awarenessA.current.addListener((_state, origin) => {
@@ -65,7 +153,7 @@ export const Sync = () => {
 
   return (
     <div>
-      <Editor loro={loroARef.current} awareness={awarenessA.current} />
+      <Editor loro={loroARef.current} awareness={awarenessA.current} fragment={docAFragment} />
       <Editor loro={loroBRef.current} awareness={awarenessB.current} />
     </div>
   );
